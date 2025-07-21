@@ -65,6 +65,9 @@ chmod +x install_carla.sh
 
 # Test full integration (terminal 2)
 ./test_carla_connection.sh
+
+# Launch interactive CLI for easy management
+./carla-jax
 ```
 
 **What you get:**
@@ -109,6 +112,43 @@ python experiments/train_sac_carla.py --total_timesteps 1000 --exp_name quicksta
 | Traffic Sim (100 vehicles) | 180ms | 12ms | **15x** |
 | LiDAR Projection (10k pts) | 45ms | 4.2ms | **10.7x** |
 | Physics Optimization | 2.3s | 0.19s | **12.1x** |
+
+## 🖥️ Interactive CLI (Recommended)
+
+**New!** Use the interactive CLI from anywhere on your system:
+
+### Quick Setup (System-wide Installation)
+```bash
+# One-time setup - run from the repository
+./quickstart.sh
+
+# Or manual setup:
+./install_system_wide.sh
+conda activate carla-jax  # or source venv_carla_jax/bin/activate
+```
+
+### Run from Anywhere
+```bash
+# After setup, run from any directory:
+carla-jax                  # Launch interactive CLI
+carla-jax --status         # Show system status
+cj                         # Short alias
+cj-start                   # Start CARLA server
+cj-stop                    # Stop CARLA server
+
+# Skip conda activation if needed
+carla-jax --no-conda
+```
+
+**CLI Features:**
+- 🌍 **Works from any directory** with automatic environment setup
+- 🐍 **Automatic conda/venv activation** for the correct environment
+- 🚀 **Auto-start CARLA** when needed
+- 📊 **Training status tracking** for all RL algorithms
+- 🎯 **Interactive script selection** with guided parameters
+- ⚙️ **Persistent configuration** stored in ~/.config/carla-jax
+- 📝 **Logs and progress monitoring**
+- 🔄 **Algorithm training progress** (shows which are trained/untrained)
 
 ## 🎮 Running the Examples
 

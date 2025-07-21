@@ -1,0 +1,558 @@
+#!/bin/bash
+# CARLA JAX Universal Launcher v2 - Ultra-robust version
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+MAGENTA='\033[0;35m'
+CYAN='\033[0;36m'
+NC='\033[0m' # No Color
+BOLD='\033[1m'
+
+# Global variables
+SCRIPT_DIR=""
+CONDA_INITIALIZED=false
+PYTHON_CMD=""
+CARLA_INSTALLED=false
+JAX_INSTALLED=false
+LOG_FILE="/tmp/carla-jax-debug.log"
+
+# Debug logging
+log_debug() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" >> "$LOG_FILE"
+}
+
+# Print with color
+print_info() {
+    echo -e "${BLUE}ℹ️  $1${NC}"
+    log_debug "INFO: $1"
+}
+
+print_success() {
+    echo -e "${GREEN}✅ $1${NC}"
+    log_debug "SUCCESS: $1"
+}
+
+print_warning() {
+    echo -e "${YELLOW}⚠️  $1${NC}"
+    log_debug "WARNING: $1"
+}
+
+print_error() {
+    echo -e "${RED}❌ $1${NC}"
+    log_debug "ERROR: $1"
+}
+
+print_header() {
+    echo -e "\n${CYAN}${BOLD}$1${NC}"
+    echo -e "${CYAN}$(printf '=%.0s' {1..60})${NC}"
+    log_debug "HEADER: $1"
+}
+
+# Find CARLA JAX directory
+find_carla_jax_dir() {
+    print_info "Searching for CARLA JAX installation..."
+    
+    # Check environment variable first
+    if [ -n "$CARLA_JAX_HOME" ] && [ -d "$CARLA_JAX_HOME" ]; then
+        SCRIPT_DIR="$CARLA_JAX_HOME"
+        print_success "Found via CARLA_JAX_HOME: $SCRIPT_DIR"
+        return 0
+    fi
+    
+    # Check current directory
+    if [ -f "carla_jax_cli.py" ]; then
+        SCRIPT_DIR="$(pwd)"
+        print_success "Found in current directory: $SCRIPT_DIR"
+        return 0
+    fi
+    
+    # Check if this script is in the CARLA JAX directory
+    local script_location="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    if [ -f "$script_location/carla_jax_cli.py" ]; then
+        SCRIPT_DIR="$script_location"
+        print_success "Found via script location: $SCRIPT_DIR"
+        return 0
+    fi
+    
+    # Search common locations
+    local search_paths=(
+        "$HOME/carla-jax-accelerated"
+        "$HOME/carla_jax_accelerated"
+        "$HOME/projects/carla-jax-accelerated"
+        "$HOME/workspace/carla-jax-accelerated"
+        "$HOME/Documents/carla-jax-accelerated"
+        "$HOME/github/carla-jax-accelerated"
+        "$HOME/repos/carla-jax-accelerated"
+    )
+    
+    for path in "${search_paths[@]}"; do
+        if [ -d "$path" ] && [ -f "$path/carla_jax_cli.py" ]; then
+            SCRIPT_DIR="$path"
+            print_success "Found at: $SCRIPT_DIR"
+            return 0
+        fi
+    done
+    
+    print_error "CARLA JAX installation not found!"
+    print_info "Please set CARLA_JAX_HOME environment variable:"
+    echo "  export CARLA_JAX_HOME=/path/to/carla-jax-accelerated"
+    return 1
+}
+
+# Initialize conda properly
+init_conda_properly() {
+    print_info "Initializing conda..."
+    
+    # Find conda executable
+    local conda_exe=""
+    if command -v conda &> /dev/null; then
+        conda_exe="conda"
+    else
+        # Search common conda locations
+        local conda_paths=(
+            "$HOME/miniconda3/bin/conda"
+            "$HOME/anaconda3/bin/conda"
+            "$HOME/miniforge3/bin/conda"
+            "$HOME/persistent/miniconda3/bin/conda"
+            "/opt/conda/bin/conda"
+        )
+        
+        for conda_path in "${conda_paths[@]}"; do
+            if [ -x "$conda_path" ]; then
+                conda_exe="$conda_path"
+                break
+            fi
+        done
+    fi
+    
+    if [ -z "$conda_exe" ]; then
+        print_warning "Conda not found"
+        return 1
+    fi
+    
+    # Get conda base directory
+    local conda_base
+    if [ "$conda_exe" = "conda" ]; then
+        conda_base=$(conda info --base 2>/dev/null)
+    else
+        conda_base=$(dirname $(dirname "$conda_exe"))
+    fi
+    
+    # Initialize conda for this shell session
+    if [ -f "$conda_base/etc/profile.d/conda.sh" ]; then
+        source "$conda_base/etc/profile.d/conda.sh"
+        CONDA_INITIALIZED=true
+        print_success "Conda initialized from: $conda_base"
+        return 0
+    else
+        # Try to run conda init
+        print_info "Running conda init..."
+        eval "$($conda_exe shell.bash hook 2>/dev/null)"
+        if [ $? -eq 0 ]; then
+            CONDA_INITIALIZED=true
+            print_success "Conda initialized successfully"
+            return 0
+        fi
+    fi
+    
+    print_error "Failed to initialize conda"
+    return 1
+}
+
+# Check Python version
+check_python_version() {
+    local python_cmd="$1"
+    local version=$($python_cmd -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>/dev/null)
+    
+    if [ -z "$version" ]; then
+        echo "unknown"
+        return 1
+    fi
+    
+    echo "$version"
+    
+    # Check if version is compatible (3.7-3.10)
+    case "$version" in
+        3.7|3.8|3.9|3.10)
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+# Find or create suitable Python environment
+setup_python_environment() {
+    print_header "Python Environment Setup"
+    
+    # First, try to use carla-jax conda environment (if conda is enabled)
+    if [ "$CONDA_INITIALIZED" = true ] && [ "$USE_CONDA" = true ]; then
+        # Check if carla-jax environment exists
+        if conda env list | grep -q "^carla-jax "; then
+            print_info "Activating carla-jax conda environment..."
+            conda activate carla-jax 2>/dev/null
+            
+            if [ $? -eq 0 ]; then
+                PYTHON_CMD="python"
+                local py_version=$(check_python_version "$PYTHON_CMD")
+                print_success "Using conda environment 'carla-jax' with Python $py_version"
+                return 0
+            else
+                print_warning "Failed to activate carla-jax environment"
+            fi
+        else
+            # Create carla-jax environment with Python 3.8
+            print_info "Creating carla-jax conda environment with Python 3.8..."
+            conda create -n carla-jax python=3.8 -y >/dev/null 2>&1
+            
+            if [ $? -eq 0 ]; then
+                conda activate carla-jax 2>/dev/null
+                if [ $? -eq 0 ]; then
+                    PYTHON_CMD="python"
+                    print_success "Created and activated carla-jax environment"
+                    return 0
+                fi
+            fi
+        fi
+    fi
+    
+    # Try virtual environment in CARLA JAX directory
+    if [ -n "$SCRIPT_DIR" ]; then
+        local venv_paths=(
+            "$SCRIPT_DIR/venv_carla_jax"
+            "$SCRIPT_DIR/PythonAPI/venv_jax"
+            "$SCRIPT_DIR/venv"
+        )
+        
+        for venv_path in "${venv_paths[@]}"; do
+            if [ -d "$venv_path" ] && [ -f "$venv_path/bin/python" ]; then
+                source "$venv_path/bin/activate"
+                PYTHON_CMD="$venv_path/bin/python"
+                local py_version=$(check_python_version "$PYTHON_CMD")
+                
+                if [ $? -eq 0 ]; then
+                    print_success "Using virtual environment: $venv_path (Python $py_version)"
+                    return 0
+                else
+                    print_warning "Virtual environment has incompatible Python $py_version"
+                fi
+            fi
+        done
+    fi
+    
+    # Try system Python versions
+    local python_cmds=("python3.8" "python3.9" "python3.7" "python3.10" "python3")
+    
+    for py_cmd in "${python_cmds[@]}"; do
+        if command -v "$py_cmd" &> /dev/null; then
+            local py_version=$(check_python_version "$py_cmd")
+            if [ $? -eq 0 ]; then
+                PYTHON_CMD="$py_cmd"
+                print_success "Using system Python: $py_cmd (version $py_version)"
+                return 0
+            fi
+        fi
+    done
+    
+    # Last resort - use any Python 3
+    if command -v python3 &> /dev/null; then
+        PYTHON_CMD="python3"
+        local py_version=$(check_python_version "$PYTHON_CMD")
+        print_warning "Using Python $py_version (may have compatibility issues)"
+        return 0
+    fi
+    
+    print_error "No suitable Python found!"
+    return 1
+}
+
+# Install CARLA with fallback options
+install_carla_package() {
+    print_header "CARLA Package Installation"
+    
+    # Check if CARLA is already installed
+    $PYTHON_CMD -c "import carla" 2>/dev/null
+    if [ $? -eq 0 ]; then
+        CARLA_INSTALLED=true
+        local carla_version=$($PYTHON_CMD -c "import carla; print(carla.__version__)" 2>/dev/null)
+        print_success "CARLA already installed (version: $carla_version)"
+        return 0
+    fi
+    
+    print_info "Installing CARLA package..."
+    
+    # Get Python version
+    local py_version=$($PYTHON_CMD -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
+    
+    # Try different installation methods
+    local install_methods=(
+        "pip install carla==0.9.15"
+        "pip install carla==0.9.14"
+        "pip install carla==0.9.13"
+        "pip install carla"
+    )
+    
+    for method in "${install_methods[@]}"; do
+        print_info "Trying: $method"
+        $PYTHON_CMD -m pip install --no-cache-dir $method 2>/dev/null
+        
+        if [ $? -eq 0 ]; then
+            CARLA_INSTALLED=true
+            print_success "CARLA installed successfully"
+            return 0
+        fi
+    done
+    
+    # Try downloading wheel directly
+    print_info "Trying direct wheel download..."
+    local wheel_urls=(
+        "https://files.pythonhosted.org/packages/cp38/carla-0.9.13-cp38-cp38-manylinux_2_27_x86_64.whl"
+        "https://files.pythonhosted.org/packages/cp37/carla-0.9.13-cp37-cp37m-manylinux_2_27_x86_64.whl"
+    )
+    
+    for wheel_url in "${wheel_urls[@]}"; do
+        local wheel_file="/tmp/$(basename $wheel_url)"
+        wget -q "$wheel_url" -O "$wheel_file" 2>/dev/null
+        
+        if [ -f "$wheel_file" ]; then
+            $PYTHON_CMD -m pip install "$wheel_file" 2>/dev/null
+            if [ $? -eq 0 ]; then
+                CARLA_INSTALLED=true
+                rm -f "$wheel_file"
+                print_success "CARLA installed from wheel"
+                return 0
+            fi
+            rm -f "$wheel_file"
+        fi
+    done
+    
+    # Last resort - try to use CARLA egg file if available
+    if [ -n "$SCRIPT_DIR" ]; then
+        local egg_patterns=(
+            "$SCRIPT_DIR/PythonAPI/carla/dist/carla-*-py$py_version*.egg"
+            "$HOME/carla_simulator/*/PythonAPI/carla/dist/carla-*-py$py_version*.egg"
+        )
+        
+        for pattern in "${egg_patterns[@]}"; do
+            local egg_files=($(ls $pattern 2>/dev/null))
+            if [ ${#egg_files[@]} -gt 0 ]; then
+                export PYTHONPATH="${egg_files[0]}:$PYTHONPATH"
+                print_warning "Added CARLA egg to PYTHONPATH: ${egg_files[0]}"
+                
+                $PYTHON_CMD -c "import carla" 2>/dev/null
+                if [ $? -eq 0 ]; then
+                    CARLA_INSTALLED=true
+                    return 0
+                fi
+            fi
+        done
+    fi
+    
+    print_warning "CARLA package could not be installed"
+    print_info "Some examples requiring CARLA will not work"
+    return 1
+}
+
+# Install JAX and dependencies
+install_jax_dependencies() {
+    print_header "JAX Dependencies Installation"
+    
+    # Check if JAX is already installed
+    $PYTHON_CMD -c "import jax" 2>/dev/null
+    if [ $? -eq 0 ]; then
+        JAX_INSTALLED=true
+        local jax_version=$($PYTHON_CMD -c "import jax; print(jax.__version__)" 2>/dev/null)
+        print_success "JAX already installed (version: $jax_version)"
+        return 0
+    fi
+    
+    print_info "Installing JAX and dependencies..."
+    
+    # Install JAX and core dependencies
+    $PYTHON_CMD -m pip install --upgrade pip >/dev/null 2>&1
+    $PYTHON_CMD -m pip install "jax[cpu]" jaxlib numpy >/dev/null 2>&1
+    
+    if [ $? -eq 0 ]; then
+        JAX_INSTALLED=true
+        print_success "JAX installed successfully"
+    else
+        print_warning "JAX installation failed"
+        return 1
+    fi
+    
+    # Install additional dependencies
+    local deps=(
+        "optax>=0.1.7"
+        "flax>=0.7.0"
+        "chex>=0.1.7"
+        "matplotlib>=3.5.0"
+        "pygame"
+    )
+    
+    for dep in "${deps[@]}"; do
+        $PYTHON_CMD -m pip install "$dep" >/dev/null 2>&1 || print_warning "Failed to install: $dep"
+    done
+    
+    return 0
+}
+
+# Run pre-flight checks
+run_preflight_checks() {
+    print_header "Pre-flight Checks"
+    
+    local issues=0
+    
+    # Check Python
+    if [ -n "$PYTHON_CMD" ]; then
+        local py_version=$(check_python_version "$PYTHON_CMD")
+        if [ $? -eq 0 ]; then
+            print_success "Python: $PYTHON_CMD (version $py_version)"
+        else
+            print_warning "Python version $py_version may have compatibility issues"
+            ((issues++))
+        fi
+    else
+        print_error "No Python command set"
+        ((issues++))
+    fi
+    
+    # Check conda environment
+    if [ -n "$CONDA_DEFAULT_ENV" ]; then
+        print_success "Conda environment: $CONDA_DEFAULT_ENV"
+    else
+        print_info "Not using conda environment"
+    fi
+    
+    # Check CARLA
+    if [ "$CARLA_INSTALLED" = true ]; then
+        print_success "CARLA package: Installed"
+    else
+        print_warning "CARLA package: Not installed (some examples won't work)"
+        ((issues++))
+    fi
+    
+    # Check JAX
+    if [ "$JAX_INSTALLED" = true ]; then
+        print_success "JAX package: Installed"
+    else
+        print_error "JAX package: Not installed"
+        ((issues++))
+    fi
+    
+    # Check CARLA JAX directory
+    if [ -d "$SCRIPT_DIR" ]; then
+        print_success "CARLA JAX directory: $SCRIPT_DIR"
+    else
+        print_error "CARLA JAX directory not found"
+        ((issues++))
+    fi
+    
+    return $issues
+}
+
+# Main execution
+main() {
+    # Parse launcher arguments
+    USE_CONDA=true
+    CLI_ARGS=()
+    
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --no-conda)
+                USE_CONDA=false
+                shift
+                ;;
+            --help)
+                print_header "🚀 CARLA JAX Universal Launcher v2 - Help"
+                echo ""
+                echo "Usage: $0 [launcher-options] [cli-options]"
+                echo ""
+                echo "Launcher Options:"
+                echo "  --no-conda    Skip conda environment setup"
+                echo "  --help        Show this help message"
+                echo ""
+                echo "CLI Options (passed to carla_jax_cli.py):"
+                echo "  --start-carla     Start CARLA server and exit"
+                echo "  --stop-carla      Stop CARLA server and exit"
+                echo "  --status          Show status and exit"
+                echo "  --test-connection Test CARLA connection and exit"
+                echo "  --no-env-check    Skip environment check"
+                exit 0
+                ;;
+            *)
+                # Pass unknown arguments to CLI
+                CLI_ARGS+=("$1")
+                shift
+                ;;
+        esac
+    done
+    
+    # Clear log file
+    > "$LOG_FILE"
+    
+    print_header "🚀 CARLA JAX Universal Launcher v2"
+    
+    # Step 1: Find CARLA JAX directory
+    find_carla_jax_dir
+    if [ $? -ne 0 ]; then
+        exit 1
+    fi
+    
+    # Export for child processes
+    export CARLA_JAX_HOME="$SCRIPT_DIR"
+    
+    # Change to CARLA JAX directory
+    cd "$SCRIPT_DIR"
+    
+    # Step 2: Initialize conda if available and requested
+    if [ "$USE_CONDA" = true ]; then
+        init_conda_properly
+    else
+        print_info "Skipping conda setup (--no-conda flag)"
+    fi
+    
+    # Step 3: Setup Python environment
+    setup_python_environment
+    if [ $? -ne 0 ]; then
+        print_error "Failed to setup Python environment"
+        exit 1
+    fi
+    
+    # Step 4: Install dependencies
+    install_jax_dependencies
+    install_carla_package
+    
+    # Step 5: Run pre-flight checks
+    run_preflight_checks
+    local check_result=$?
+    
+    if [ $check_result -gt 0 ]; then
+        print_warning "Found $check_result potential issues"
+        echo -e "\n${YELLOW}Continue anyway? (y/N): ${NC}"
+        read -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            exit 1
+        fi
+    fi
+    
+    # Step 6: Launch CLI
+    print_header "Launching CARLA JAX CLI"
+    print_info "Working directory: $(pwd)"
+    print_info "Python command: $PYTHON_CMD"
+    print_info "Environment: ${CONDA_DEFAULT_ENV:-none}"
+    
+    # Set environment variables for the CLI
+    export CARLA_JAX_PYTHON="$PYTHON_CMD"
+    export CARLA_JAX_LAUNCHER_VERSION="2.0"
+    
+    # Run the CLI with filtered arguments
+    exec $PYTHON_CMD carla_jax_cli.py "${CLI_ARGS[@]}"
+}
+
+# Run main function
+main "$@"

@@ -17,14 +17,24 @@ import time
 from typing import List, Dict, Tuple, Optional, NamedTuple
 
 try:
-    sys.path.append(glob.glob('../../carla/dist/carla-*%d.%d-%s.egg' % (
-        sys.version_info.major,
-        sys.version_info.minor,
-        'win-amd64' if os.name == 'nt' else 'linux-x86_64'))[0])
-except IndexError:
-    pass
-
-import carla
+    # First try the import fix utility
+    from carla_import_fix import import_carla
+    carla = import_carla()
+except ImportError:
+    # Fallback to old method
+    try:
+        sys.path.append(glob.glob('../../carla/dist/carla-*%d.%d-%s.egg' % (
+            sys.version_info.major,
+            sys.version_info.minor,
+            'win-amd64' if os.name == 'nt' else 'linux-x86_64'))[0])
+    except IndexError:
+        pass
+    
+    try:
+        import carla
+    except ImportError:
+        print("Warning: CARLA module not found. Only JAX-only mode will work.")
+        carla = None
 
 try:
     import numpy as np
@@ -315,7 +325,7 @@ class JAXTrafficManager:
                            speed_range: Tuple[float, float] = (5.0, 15.0)) -> AgentState:
         """Create random agents with JAX."""
         
-        self.rng_key, *subkeys = jax_random.split(self.rng_key, 7)
+        self.rng_key, *subkeys = jax_random.split(self.rng_key, 8)
         
         # Random positions in spawn area
         x_min, x_max, y_min, y_max = spawn_area
@@ -559,6 +569,11 @@ def main():
     if args.mode == 'jax-only':
         run_jax_only_demo(args)
     elif args.mode == 'carla-integration':
+        if carla is None:
+            print("\n❌ Error: CARLA module is required for integration mode.")
+            print("Please install CARLA with: pip install carla")
+            print("Or use: --mode jax-only")
+            return
         run_carla_integration_demo(args)
 
 

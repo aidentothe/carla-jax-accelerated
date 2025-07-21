@@ -1,0 +1,248 @@
+#!/bin/bash
+# CARLA JAX Launcher - Redirects to new universal launcher
+# This file is kept for backward compatibility
+
+# Get the directory of this script
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Redirect to new universal launcher
+exec "$SCRIPT_DIR/carla-jax-universal" "$@"
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# Find the CARLA JAX repository directory
+find_carla_jax_dir() {
+    # Check common locations
+    local search_paths=(
+        "$HOME/carla-jax-accelerated"
+        "$HOME/carla_jax_accelerated"
+        "$HOME/projects/carla-jax-accelerated"
+        "$HOME/workspace/carla-jax-accelerated"
+        "$HOME/Documents/carla-jax-accelerated"
+        "$HOME/github/carla-jax-accelerated"
+        "$HOME/repos/carla-jax-accelerated"
+        "/opt/carla-jax-accelerated"
+        "/usr/local/carla-jax-accelerated"
+    )
+    
+    # First check if CARLA_JAX_HOME is set
+    if [ -n "$CARLA_JAX_HOME" ] && [ -d "$CARLA_JAX_HOME" ]; then
+        echo "$CARLA_JAX_HOME"
+        return 0
+    fi
+    
+    # Check common locations
+    for path in "${search_paths[@]}"; do
+        if [ -d "$path" ] && [ -f "$path/carla_jax_cli.py" ]; then
+            echo "$path"
+            return 0
+        fi
+    done
+    
+    # Try to find it using find command (last resort, slower)
+    local found_dir=$(find "$HOME" -name "carla_jax_cli.py" -type f 2>/dev/null | head -1 | xargs dirname)
+    if [ -n "$found_dir" ]; then
+        echo "$found_dir"
+        return 0
+    fi
+    
+    return 1
+}
+
+# Detect if we're in a conda environment
+detect_conda() {
+    if [ -n "$CONDA_DEFAULT_ENV" ]; then
+        echo -e "${BLUE}Current conda environment: ${GREEN}$CONDA_DEFAULT_ENV${NC}"
+        return 0
+    fi
+    return 1
+}
+
+# Find conda installation
+find_conda() {
+    # Common conda locations
+    local conda_paths=(
+        "$HOME/miniconda3/bin/conda"
+        "$HOME/anaconda3/bin/conda"
+        "$HOME/miniforge3/bin/conda"
+        "$HOME/mambaforge/bin/conda"
+        "/opt/conda/bin/conda"
+        "/usr/local/miniconda3/bin/conda"
+        "/usr/local/anaconda3/bin/conda"
+    )
+    
+    # Check if conda is in PATH
+    if command -v conda &> /dev/null; then
+        echo "conda"
+        return 0
+    fi
+    
+    # Check common locations
+    for conda_path in "${conda_paths[@]}"; do
+        if [ -x "$conda_path" ]; then
+            echo "$conda_path"
+            return 0
+        fi
+    done
+    
+    return 1
+}
+
+# Initialize conda
+init_conda() {
+    local conda_exe=$(find_conda)
+    if [ $? -ne 0 ]; then
+        echo -e "${YELLOW}Warning: Conda not found. Proceeding without conda...${NC}"
+        return 1
+    fi
+    
+    # Get conda base directory
+    local conda_base
+    if [ "$conda_exe" = "conda" ]; then
+        conda_base=$(conda info --base 2>/dev/null)
+    else
+        conda_base=$(dirname $(dirname "$conda_exe"))
+    fi
+    
+    # Source conda
+    if [ -f "$conda_base/etc/profile.d/conda.sh" ]; then
+        source "$conda_base/etc/profile.d/conda.sh"
+    else
+        echo -e "${YELLOW}Warning: Could not source conda.sh${NC}"
+        return 1
+    fi
+    
+    return 0
+}
+
+# Create or activate CARLA JAX conda environment
+setup_conda_env() {
+    local env_name="carla-jax"
+    
+    # Check if environment exists
+    if conda env list | grep -q "^$env_name "; then
+        echo -e "${BLUE}Activating existing conda environment: ${GREEN}$env_name${NC}"
+        conda activate "$env_name"
+    else
+        echo -e "${YELLOW}Creating new conda environment: $env_name${NC}"
+        read -p "Do you want to create a new conda environment? (y/N): " -n 1 -r
+        echo
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+            # Create environment with Python 3.8 (compatible with CARLA)
+            conda create -n "$env_name" python=3.8 -y
+            conda activate "$env_name"
+            
+            # Install basic requirements
+            echo -e "${BLUE}Installing basic requirements...${NC}"
+            pip install --upgrade pip
+            pip install jax jaxlib numpy
+        else
+            echo -e "${YELLOW}Proceeding without creating conda environment${NC}"
+            return 1
+        fi
+    fi
+    
+    return 0
+}
+
+# Main execution
+main() {
+    echo -e "${BLUE}🚀 CARLA JAX Universal Launcher${NC}"
+    echo -e "${BLUE}================================${NC}"
+    
+    # Find CARLA JAX directory
+    echo -e "\n${BLUE}Finding CARLA JAX installation...${NC}"
+    CARLA_JAX_DIR=$(find_carla_jax_dir)
+    
+    if [ $? -ne 0 ]; then
+        echo -e "${RED}Error: Could not find CARLA JAX installation!${NC}"
+        echo -e "${YELLOW}Please set CARLA_JAX_HOME environment variable:${NC}"
+        echo -e "  export CARLA_JAX_HOME=/path/to/carla-jax-accelerated"
+        echo -e "\nOr clone the repository:"
+        echo -e "  git clone https://github.com/aidentothe/carla-jax-accelerated.git"
+        exit 1
+    fi
+    
+    echo -e "${GREEN}Found CARLA JAX at: $CARLA_JAX_DIR${NC}"
+    
+    # Save current directory
+    ORIGINAL_DIR=$(pwd)
+    
+    # Check if we should use conda
+    USE_CONDA=true
+    if [ "$1" = "--no-conda" ]; then
+        USE_CONDA=false
+        shift  # Remove the --no-conda argument
+    fi
+    
+    # Handle conda environment
+    if [ "$USE_CONDA" = true ]; then
+        # Check if already in conda environment
+        if ! detect_conda || [ "$CONDA_DEFAULT_ENV" != "carla-jax" ]; then
+            echo -e "\n${BLUE}Setting up conda environment...${NC}"
+            
+            # Initialize conda if needed
+            if ! command -v conda &> /dev/null; then
+                init_conda
+            fi
+            
+            # Setup CARLA JAX conda environment
+            if command -v conda &> /dev/null; then
+                setup_conda_env
+            fi
+        fi
+    fi
+    
+    # Change to CARLA JAX directory
+    echo -e "\n${BLUE}Changing to CARLA JAX directory...${NC}"
+    cd "$CARLA_JAX_DIR"
+    
+    # Check if virtual environment exists (fallback if no conda)
+    if [ ! -n "$CONDA_DEFAULT_ENV" ]; then
+        if [ -d "venv_carla_jax" ]; then
+            echo -e "${BLUE}Activating virtual environment...${NC}"
+            source venv_carla_jax/bin/activate
+        elif [ -d "PythonAPI/venv_jax" ]; then
+            echo -e "${BLUE}Activating JAX virtual environment...${NC}"
+            source PythonAPI/venv_jax/bin/activate
+        fi
+    fi
+    
+    # Check if required packages are installed
+    echo -e "\n${BLUE}Checking dependencies...${NC}"
+    python3 -c "import jax; import carla" 2>/dev/null
+    if [ $? -ne 0 ]; then
+        echo -e "${YELLOW}Some dependencies are missing. Installing...${NC}"
+        
+        # Install JAX if missing
+        python3 -c "import jax" 2>/dev/null || pip install jax jaxlib
+        
+        # Install CARLA if missing
+        python3 -c "import carla" 2>/dev/null || pip install carla==0.9.15
+    fi
+    
+    # Run the CLI with all passed arguments
+    echo -e "\n${BLUE}Launching CARLA JAX CLI...${NC}"
+    echo -e "${BLUE}Current directory: $(pwd)${NC}"
+    echo -e "${BLUE}Python: $(which python3)${NC}"
+    
+    if [ -n "$CONDA_DEFAULT_ENV" ]; then
+        echo -e "${BLUE}Conda env: ${GREEN}$CONDA_DEFAULT_ENV${NC}"
+    fi
+    
+    echo -e "${BLUE}================================${NC}\n"
+    
+    # Run the CLI
+    python3 carla_jax_cli.py "$@"
+    
+    # Return to original directory when done
+    cd "$ORIGINAL_DIR"
+}
+
+# Run main function
+main "$@"

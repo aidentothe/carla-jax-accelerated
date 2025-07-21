@@ -1,0 +1,22 @@
+name: carla-jax
+channels:
+  - defaults
+  - conda-forge
+dependencies:
+  - python=3.8
+  - pip
+  - numpy>=1.21.0
+  - matplotlib>=3.5.0
+  - pillow
+  - pip:
+    - jax[cpu]>=0.4.20
+    - jaxlib>=0.4.20
+    - optax>=0.1.7
+    - flax>=0.7.0
+    - chex>=0.1.7
+    - dm-haiku>=0.0.9
+    - opencv-python>=4.5.0
+    - pygame
+    - carla==0.9.15
+    - tensorflow-probability>=0.19.0
+    - wandb>=0.13.0

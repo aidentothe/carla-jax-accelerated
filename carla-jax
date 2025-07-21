@@ -1,0 +1,15 @@
+#!/bin/bash
+# CARLA JAX CLI Launcher
+
+# Get the directory of this script
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Check if virtual environment exists and activate it
+if [ -d "$SCRIPT_DIR/venv_carla_jax" ]; then
+    source "$SCRIPT_DIR/venv_carla_jax/bin/activate"
+elif [ -d "$SCRIPT_DIR/PythonAPI/venv_jax" ]; then
+    source "$SCRIPT_DIR/PythonAPI/venv_jax/bin/activate"
+fi
+
+# Run the CLI
+python3 "$SCRIPT_DIR/carla_jax_cli.py" "$@"
