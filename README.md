@@ -49,7 +49,32 @@ chmod +x setup_jax_environment.sh
 - ✅ LiDAR-camera projection (10.7x speedup)
 - ✅ Physics simulation with autodiff (12.1x speedup)
 
-### Option 2: Full RL Framework (Complete setup)
+### Option 2: Complete CARLA + JAX Integration (Recommended - 15 minutes)
+
+```bash
+# Clone repository
+git clone https://github.com/aidentothe/carla-jax-accelerated.git
+cd carla-jax-accelerated
+
+# Automated CARLA + JAX installation
+chmod +x install_carla.sh
+./install_carla.sh
+
+# Start CARLA server (terminal 1)
+./start_carla.sh --vulkan
+
+# Test full integration (terminal 2)
+./test_carla_connection.sh
+```
+
+**What you get:**
+- ✅ Complete CARLA simulator (version 0.9.15)
+- ✅ JAX-accelerated examples with CARLA integration
+- ✅ Automated installation and setup
+- ✅ Ready-to-run demos and examples
+- ✅ Full autonomous driving simulation environment
+
+### Option 3: Full RL Framework (Complete setup)
 
 ```bash
 # Clone repository
@@ -107,21 +132,37 @@ python sensor_synchronization_jax.py --demo-mode
 
 ### With CARLA (Full simulation)
 
+**Method 1: Automated Installation (Recommended)**
 ```bash
-# Terminal 1: Start CARLA server
-cd /path/to/CARLA
-./CarlaUE4.sh
+# Install CARLA automatically
+./install_carla.sh
 
-# Terminal 2: Run JAX examples with CARLA
-cd carla-jax-accelerated/PythonAPI
-./run_with_carla.sh
+# Start CARLA server (terminal 1)
+./start_carla.sh --vulkan
 
-# Or run individual examples:
-cd examples_jax
+# Run JAX examples with CARLA (terminal 2)
+./activate_carla_jax.sh
+cd PythonAPI/examples_jax
 python automatic_control_jax.py --jax-agent --sync --host localhost --port 2000
 python sensor_synchronization_jax.py --frames 100 --host localhost --port 2000
 python lidar_to_camera_jax.py --frames 50 --width 1280 --height 720
 python generate_traffic_jax.py --mode carla-integration --number-of-vehicles 50
+```
+
+**Method 2: Manual Installation**
+```bash
+# Install CARLA manually - see CARLA_INSTALLATION_GUIDE.md for details
+pip install carla==0.9.15
+wget https://github.com/carla-simulator/carla/releases/download/0.9.15/CARLA_0.9.15.tar.gz
+tar -xzf CARLA_0.9.15.tar.gz
+
+# Start CARLA server (terminal 1)
+cd CARLA_0.9.15
+./CarlaUE4.sh
+
+# Run JAX examples with CARLA (terminal 2)
+cd carla-jax-accelerated/PythonAPI/examples_jax
+python automatic_control_jax.py --jax-agent --sync --host localhost --port 2000
 ```
 
 ### RL Training Examples
@@ -310,6 +351,9 @@ nc -z localhost 2000
 
 # Start CARLA with low quality for development
 ./CarlaUE4.sh -quality-level=Low -fps=20
+
+# For complete CARLA installation and troubleshooting:
+# See CARLA_INSTALLATION_GUIDE.md
 ```
 
 ### Memory Issues
@@ -323,7 +367,8 @@ export XLA_PYTHON_CLIENT_MEM_FRACTION=0.7
 
 ## 📚 Documentation
 
-- 📖 **[JAX Setup Guide](PythonAPI/README_JAX_SETUP.md)** - Complete setup instructions
+- 🚀 **[CARLA Installation Guide](CARLA_INSTALLATION_GUIDE.md)** - Complete CARLA setup for Linux
+- 📖 **[JAX Setup Guide](PythonAPI/README_JAX_SETUP.md)** - JAX-only setup instructions
 - 🎯 **[JAX Examples Documentation](PythonAPI/examples_jax/README.md)** - Detailed example usage
 - ⚡ **[Quick Start](QUICKSTART.md)** - RL framework quick start
 - 🔧 **[Setup Guide](SETUP_GUIDE.md)** - Full framework installation
